@@ -32,7 +32,7 @@ public class ConflictResolutionTests
 
         var auctionRepo = new AuctionRepository(db);
         var bidRepo = new BidRepository(db);
-        var sequence = new FakeSequenceService(); // já usada nos outros testes
+        var sequence = new FakeSequenceService();
         var ordering = new BidOrderingService(sequence, db);
         var coordinator = new RegionCoordinator("US-East", "EU-West");
         var resolver = new ConflictResolver();

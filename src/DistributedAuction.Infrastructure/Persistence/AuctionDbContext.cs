@@ -2,7 +2,6 @@
 using Microsoft.EntityFrameworkCore;
 
 namespace DistributedAuction.Infrastructure.Persistence;
-
 public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbContext(opts)
 {
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
@@ -25,6 +24,7 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
         modelBuilder.Entity<PartitionRecovery>()
             .HasIndex(p => new { p.AuctionId, p.Region })
             .IsUnique();
+
         modelBuilder.Entity<AuctionSequence>().HasKey(s => s.AuctionId);
 
         modelBuilder.Entity<Bid>()
@@ -33,21 +33,45 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
 
         modelBuilder.Entity<Bid>()
             .HasIndex(b => new { b.AuctionId, b.Amount });
+
         modelBuilder.Entity<Bid>()
-                  .HasIndex(b => new { b.AuctionId, b.DeduplicationKey })
-                  .IsUnique();
+            .HasIndex(b => new { b.AuctionId, b.DeduplicationKey })
+            .IsUnique();
+
         modelBuilder.Entity<Auction>()
             .Property(a => a.RowVersion)
-            .IsRowVersion()
+            .HasColumnType("BLOB")
             .IsConcurrencyToken()
             .HasDefaultValue(new byte[8]);
 
         modelBuilder.Entity<Auction>()
-                    .HasIndex(a => new { a.Region, a.HighestAmount });
+            .HasIndex(a => new { a.Region, a.HighestAmount });
+
         modelBuilder.Entity<AuditEntry>()
             .HasIndex(a => new { a.EntityType, a.EntityId, a.OccurredAt });
 
         modelBuilder.Entity<AuditEntry>()
             .HasIndex(a => a.Region);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        BumpAuctionRowVersion();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        BumpAuctionRowVersion();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    private void BumpAuctionRowVersion()
+    {
+        foreach (var entry in ChangeTracker.Entries<Auction>()
+                                           .Where(e => e.State == EntityState.Modified))
+        {
+            entry.Entity.RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks);
+        }
     }
 }

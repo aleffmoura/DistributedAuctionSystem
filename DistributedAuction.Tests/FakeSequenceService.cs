@@ -2,14 +2,17 @@
 
 namespace DistributedAuction.Tests;
 
-public sealed class FakeSequenceService : IAuctionSequenceService
+public class FakeSequenceService : IAuctionSequenceService
 {
-    private readonly Dictionary<Guid, long> _seq = new();
+    private long _last;
+    private readonly object _gate = new();
+
     public Task<long> GetNextAsync(Guid auctionId)
     {
-        if (!_seq.TryGetValue(auctionId, out var v)) v = 0;
-        v += 1;
-        _seq[auctionId] = v;
-        return Task.FromResult(v);
+        lock (_gate)
+        {
+            _last++;
+            return Task.FromResult(_last);
+        }
     }
 }

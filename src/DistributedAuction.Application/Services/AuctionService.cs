@@ -28,100 +28,123 @@ public class AuctionService(
 
     public async Task<Auction> CreateAuctionAsync(Auction auction)
     {
-        // CP choice: write to single owner region with strong constraints
+        // CP: single-owner region write with strong guarantees
         if (auction.StartTime == default) auction.StartTime = DateTime.UtcNow;
         if (auction.EndTime <= auction.StartTime) auction.EndTime = auction.StartTime.AddMinutes(5);
         auction.State = AuctionState.Running;
+
         await _auctionRepo.AddAsync(auction);
+
+        _db.AuditEntries.Add(new AuditEntry
+        {
+            EntityType = nameof(Auction),
+            EntityId = auction.Id,
+            Operation = "Create",
+            Region = auction.Region,
+            UserId = null,
+            PayloadJson = JsonSerializer.Serialize(new { auction.Id, auction.Region, auction.StartTime, auction.EndTime })
+        });
+        await _db.SaveChangesAsync();
+
         return auction;
     }
 
     public async Task<BidResult> PlaceBidAsync(Guid auctionId, BidRequest request)
     {
+        // Same-region: process locally with strong consistency
         if (request.TargetRegion == request.OriginRegion)
-        {
-            // local strong consistency
             return await AcceptBidLocally(auctionId, request);
-        }
-        else
+
+        // Cross-region with healthy connectivity: execute in the target (owner) region
+        if (await _region.IsRegionReachableAsync(request.TargetRegion))
         {
-            if (await _region.IsRegionReachableAsync(request.TargetRegion))
-            {
-                return await AcceptBidLocally(auctionId, request);
-            }
-            else
-            {
-                var pendingBid = new Bid
-                {
-                    Id = Guid.NewGuid(),
-                    AuctionId = auctionId,
-                    UserId = request.UserId,
-                    Amount = request.Amount,
-                    OriginRegion = request.OriginRegion,
-                    WasPending = true,
-                    DeduplicationKey = request.DeduplicationKey ?? Guid.NewGuid().ToString(),
-                    Timestamp = DateTime.UtcNow
-                };
-
-                var payload = JsonSerializer.Serialize(pendingBid);
-                _db.OutboxEvents.Add(new OutboxEvent
-                {
-                    AggregateType = nameof(Bid),
-                    AggregateId = pendingBid.Id,
-                    EventType = "CrossRegionBid",
-                    PayloadJson = payload,
-                    DestinationRegion = request.TargetRegion
-                });
-
-                _db.AuditEntries.Add(new AuditEntry
-                {
-                    EntityType = nameof(Bid),
-                    EntityId = pendingBid.Id,
-                    Operation = "PlaceBid",
-                    Region = request.OriginRegion,
-                    UserId = null,
-                    PayloadJson = JsonSerializer.Serialize(pendingBid)
-                });
-                await _db.SaveChangesAsync();
-                return BidResult.Pending(pendingBid);
-            }
+            return await _region.ExecuteInRegionAsync(
+                request.TargetRegion,
+                () => AcceptBidLocally(auctionId, request)
+            );
         }
+
+        // Partition: queue as pending CrossRegionBid (availability)
+        var pendingBid = new Bid
+        {
+            Id = Guid.NewGuid(),
+            AuctionId = auctionId,
+            UserId = request.UserId,
+            Amount = request.Amount,
+            OriginRegion = request.OriginRegion,
+            WasPending = true,
+            DeduplicationKey = request.DeduplicationKey ?? Guid.NewGuid().ToString(),
+            Timestamp = DateTime.UtcNow
+        };
+
+        var payload = JsonSerializer.Serialize(pendingBid);
+
+        _db.OutboxEvents.Add(new OutboxEvent
+        {
+            AggregateType = nameof(Bid),
+            AggregateId = pendingBid.Id,
+            EventType = "CrossRegionBid",
+            PayloadJson = payload,
+            DestinationRegion = request.TargetRegion
+        });
+
+        _db.AuditEntries.Add(new AuditEntry
+        {
+            EntityType = nameof(Bid),
+            EntityId = pendingBid.Id,
+            Operation = "PlaceBidPendingPartition",
+            Region = request.OriginRegion,
+            UserId = request.UserId,
+            PayloadJson = payload
+        });
+
+        await _db.SaveChangesAsync();
+        return BidResult.Pending(pendingBid);
     }
 
-    public async Task<Auction?> GetAuctionAsync(Guid auctionId, ConsistencyLevel consistency)
+    public Task<Auction?> GetAuctionAsync(Guid auctionId, ConsistencyLevel _)
     {
-        if (consistency == ConsistencyLevel.Eventual)
-        {
-            await _auctionRepo.GetAsync(auctionId);
-        }
-        return await _auctionRepo.GetAsync(auctionId);
+        // No replica in this simulation -> eventual == strong
+        return _auctionRepo.GetAsync(auctionId);
     }
 
     public async Task<ReconciliationResult> ReconcileAuctionAsync(Guid auctionId)
     {
+        // Lock the auction for updates
         var auction = await _auctionRepo.GetForUpdateAsync(auctionId)
             ?? throw new InvalidOperationException("Auction not found");
 
+        // Deliver pending cross-region bids destined to this auction's region
         var pending = await _db.OutboxEvents
-                .Where(o => o.ProcessedAt == null
-                         && o.DestinationRegion == auction.Region
-                         && o.AggregateType == nameof(Bid)
-                         && o.EventType == "CrossRegionBid")
-                .OrderBy(o => o.CreatedAt)
-                .ToListAsync();
+            .Where(o => o.ProcessedAt == null
+                     && o.DestinationRegion == auction.Region
+                     && o.AggregateType == nameof(Bid)
+                     && o.EventType == "CrossRegionBid")
+            .OrderBy(o => o.CreatedAt)
+            .ToListAsync();
 
         foreach (var ev in pending)
         {
             var bid = JsonSerializer.Deserialize<Bid>(ev.PayloadJson)!;
-            if (bid.AuctionId != auctionId) { ev.ProcessedAt = DateTime.UtcNow; continue; }
 
+            // Skip if event not for this auction
+            if (bid.AuctionId != auctionId)
+            {
+                ev.ProcessedAt = DateTime.UtcNow;
+                _db.OutboxEvents.Update(ev);
+                continue;
+            }
+
+            // If auction already ended/reconciled, discard late bids
             if ((auction.State == AuctionState.Ended || auction.State == AuctionState.Reconciled)
                 && bid.Timestamp > auction.EndTime)
             {
                 ev.ProcessedAt = DateTime.UtcNow;
+                _db.OutboxEvents.Update(ev);
                 continue;
             }
 
+            // Assign sequence in owner region and persist (idempotent via dedup logic at service/db)
             bid.Sequence = await _sequence.GetNextAsync(auctionId);
             await _bidRepo.AddAsync(bid);
 
@@ -134,53 +157,60 @@ public class AuctionService(
 
             ev.ProcessedAt = DateTime.UtcNow;
             _db.OutboxEvents.Update(ev);
+
             _db.AuditEntries.Add(new AuditEntry
             {
                 EntityType = nameof(OutboxEvent),
-                EntityId = auction.Id,
+                EntityId = ev.Id,
                 Operation = "Reconcile",
                 Region = auction.Region,
                 UserId = null,
-                PayloadJson = JsonSerializer.Serialize(auction)
+                PayloadJson = ev.PayloadJson
             });
         }
 
-        var eligible = _db.Bids.AsNoTracking()
-            .Where(b => b.AuctionId == auctionId);
-
+        // Compute final winner deterministically (respect EndTime if ended)
+        var eligible = _db.Bids.AsNoTracking().Where(b => b.AuctionId == auctionId);
         if (DateTime.UtcNow >= auction.EndTime || auction.State is AuctionState.Ended or AuctionState.Reconciled)
             eligible = eligible.Where(b => b.Timestamp <= auction.EndTime);
 
-        var topAmount = await eligible.Select(b => (decimal?)b.Amount).MaxAsync() ?? 0m;
+        var top = await eligible
+            .OrderByDescending(b => (double)b.Amount)
+            .ThenBy(b => b.Sequence)
+            .ThenBy(b => b.Timestamp)
+            .ThenBy(b => b.Id)
+            .FirstOrDefaultAsync();
 
-        if (topAmount > 0)
+        if (top is not null)
         {
-            var winner = await eligible
-                .Where(b => b.Amount == topAmount)
-                .OrderBy(b => b.Sequence)  
-                .ThenBy(b => b.CreatedAt)  
-                .ThenBy(b => b.Id)         
-                .FirstAsync();
-
-            auction.HighestAmount = winner.Amount;
-            auction.HighestBidId = winner.Id;
-            _db.Auctions.Update(auction);
+            auction.HighestAmount = top.Amount;
+            auction.HighestBidId = top.Id;
         }
 
+        // State transitions
         if (DateTime.UtcNow >= auction.EndTime && auction.State == AuctionState.Running)
             auction.State = AuctionState.Ended;
         if (auction.State == AuctionState.Ended)
             auction.State = AuctionState.Reconciled;
 
         await _auctionRepo.UpdateAsync(auction);
+        await _db.SaveChangesAsync();
+
         return new ReconciliationResult(true, "Reconciled with pending cross-region bids.");
     }
 
     private async Task<BidResult> AcceptBidLocally(Guid auctionId, BidRequest request)
     {
-        // Serializable to provide strong intra-region ordering guarantees
+        // Strong intra-region guarantees with serializable transaction
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-        var auction = await _auctionRepo.GetForUpdateAsync(auctionId) ?? throw new InvalidOperationException("Auction not found");
+
+        var auction = await _auctionRepo.GetForUpdateAsync(auctionId)
+            ?? throw new InvalidOperationException("Auction not found");
+
+        // Ensure we're applying in the auction's owner region
+        if (!string.Equals(auction.Region, request.TargetRegion, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Bid must be processed in the auction's owner region (target mismatch).");
+
         if (auction.State != AuctionState.Running)
             return BidResult.Rejected(new Bid { AuctionId = auctionId, UserId = request.UserId, Amount = request.Amount }, "Auction not running.");
 
@@ -192,27 +222,29 @@ public class AuctionService(
             return BidResult.Rejected(new Bid { AuctionId = auctionId, UserId = request.UserId, Amount = request.Amount }, "Auction already ended.");
         }
 
+        // Idempotency by DeduplicationKey
         if (!string.IsNullOrWhiteSpace(request.DeduplicationKey))
         {
             var exists = await _db.Bids
                 .AsNoTracking()
-                .FirstOrDefaultAsync(b =>
-                    b.AuctionId == auctionId &&
-                    b.DeduplicationKey == request.DeduplicationKey);
+                .FirstOrDefaultAsync(b => b.AuctionId == auctionId && b.DeduplicationKey == request.DeduplicationKey);
 
             if (exists is not null)
                 return BidResult.Accepted(exists);
         }
+
         var seq = await _sequence.GetNextAsync(auctionId);
         var bid = new Bid
         {
+            Id = Guid.NewGuid(),
             AuctionId = auctionId,
             UserId = request.UserId,
             Amount = request.Amount,
             Sequence = seq,
             OriginRegion = request.OriginRegion,
             WasPending = false,
-            DeduplicationKey = request.DeduplicationKey
+            DeduplicationKey = request.DeduplicationKey,
+            Timestamp = DateTime.UtcNow
         };
 
         var acceptance = await _ordering.ValidateBidOrderAsync(auctionId, bid);
@@ -231,26 +263,31 @@ public class AuctionService(
             await _auctionRepo.UpdateAsync(auction);
         }
 
-        var otherRegion = request.TargetRegion;
-        var payload = JsonSerializer.Serialize(bid);
-        _db.OutboxEvents.Add(new OutboxEvent
+        // Propagate back to origin region (for cross-region callers) as informational event
+        if (!string.Equals(request.TargetRegion, request.OriginRegion, StringComparison.OrdinalIgnoreCase))
         {
-            AggregateType = nameof(Bid),
-            AggregateId = bid.Id,
-            EventType = "BidAccepted",
-            PayloadJson = payload,
-            DestinationRegion = otherRegion
-        });
-        await _db.SaveChangesAsync();
+            var payload = JsonSerializer.Serialize(bid);
+            _db.OutboxEvents.Add(new OutboxEvent
+            {
+                AggregateType = nameof(Bid),
+                AggregateId = bid.Id,
+                EventType = "BidAccepted",
+                PayloadJson = payload,
+                DestinationRegion = request.OriginRegion
+            });
+        }
+
         _db.AuditEntries.Add(new AuditEntry
         {
-            EntityType = nameof(Auction),
-            EntityId = auction.Id,
-            Operation = "Create",
+            EntityType = nameof(Bid),
+            EntityId = bid.Id,
+            Operation = "PlaceBidAccepted",
             Region = auction.Region,
-            UserId = null,
-            PayloadJson = JsonSerializer.Serialize(auction)
+            UserId = request.UserId,
+            PayloadJson = JsonSerializer.Serialize(new { bid.Amount, bid.Sequence, bid.OriginRegion, bid.Timestamp })
         });
+
+        await _db.SaveChangesAsync();
         await tx.CommitAsync();
         return BidResult.Accepted(bid);
     }

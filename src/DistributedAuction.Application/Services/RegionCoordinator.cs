@@ -3,7 +3,6 @@ using DistributedAuction.Domain.Interfaces;
 using System.Collections.Concurrent;
 
 namespace DistributedAuction.Application.Services;
-
 public class RegionCoordinator : IRegionCoordinator
 {
     private readonly ConcurrentDictionary<string, bool> _reach = new();
@@ -16,7 +15,10 @@ public class RegionCoordinator : IRegionCoordinator
     }
 
     public Task<bool> IsRegionReachableAsync(string region)
-        => Task.FromResult(_reach.TryGetValue(region, out var ok) && ok);
+    {
+        var ok = !_reach.TryGetValue(region, out var flag) || flag;
+        return Task.FromResult(ok);
+    }
 
     public async Task<T> ExecuteInRegionAsync<T>(string region, Func<Task<T>> operation)
     {
@@ -31,7 +33,6 @@ public class RegionCoordinator : IRegionCoordinator
         return Task.FromResult(partitioned ? PartitionStatus.Partitioned : PartitionStatus.Healthy);
     }
 
-    // Test helpers
     public void SimulatePartition(string regionA, string regionB)
     {
         _reach[regionA] = false;

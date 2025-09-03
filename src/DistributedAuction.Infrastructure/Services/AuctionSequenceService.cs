@@ -2,6 +2,8 @@
 using DistributedAuction.Domain.Interfaces;
 using DistributedAuction.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
+using System.Data;
 
 namespace DistributedAuction.Infrastructure.Services;
 
@@ -11,26 +13,54 @@ public class AuctionSequenceService(AuctionDbContext db) : IAuctionSequenceServi
 
     public async Task<long> GetNextAsync(Guid auctionId)
     {
-        // Use transaction + SELECT FOR UPDATE to ensure atomic increment
-        using var tx = await _db.Database.BeginTransactionAsync();
-        var seq = await _db.AuctionSequences.SingleOrDefaultAsync(s => s.AuctionId == auctionId);
-        if (seq == null)
+        // Se já há uma transação ativa (ex.: AcceptBidLocally), NÃO começamos outra.
+        var hasAmbientTx = _db.Database.CurrentTransaction is not null;
+
+        // Abrimos transação própria SÓ se necessário (fora de um fluxo transacional).
+        IDbContextTransaction? localTx = null;
+        if (!hasAmbientTx)
         {
-            seq = new AuctionSequence { AuctionId = auctionId, LastSequence = 1 };
-            _db.AuctionSequences.Add(seq);
-            await _db.SaveChangesAsync();
-            await tx.CommitAsync();
-            return 1;
+            localTx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         }
 
-        // lock row
-        await _db.Database.ExecuteSqlRawAsync(
-            "SELECT 1 FROM \"AuctionSequences\" WHERE \"AuctionId\" = {0} FOR UPDATE", auctionId);
+        try
+        {
+            // Carrega ou cria o registro de sequência do leilão
+            var seq = await _db.AuctionSequences
+                .SingleOrDefaultAsync(x => x.AuctionId == auctionId);
 
-        seq.LastSequence += 1;
-        _db.AuctionSequences.Update(seq);
-        await _db.SaveChangesAsync();
-        await tx.CommitAsync();
-        return seq.LastSequence;
+            if (seq is null)
+            {
+                seq = new AuctionSequence
+                {
+                    AuctionId = auctionId,
+                    LastSequence = 1
+                };
+                _db.AuctionSequences.Add(seq);
+            }
+            else
+            {
+                seq.LastSequence += 1;
+                _db.AuctionSequences.Update(seq);
+            }
+
+            await _db.SaveChangesAsync();
+
+            if (localTx is not null)
+                await localTx.CommitAsync();
+
+            return seq.LastSequence;
+        }
+        catch
+        {
+            if (localTx is not null)
+                await localTx.RollbackAsync();
+            throw;
+        }
+        finally
+        {
+            if (localTx is not null)
+                await localTx.DisposeAsync();
+        }
     }
 }
