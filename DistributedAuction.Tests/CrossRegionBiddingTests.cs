@@ -45,8 +45,7 @@ public class CrossRegionBiddingTests
             Region = "US-East", // dono do leilão
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(1),
-            State = AuctionState.Running,
-            RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks)
+            State = AuctionState.Running
         };
         await svc.CreateAuctionAsync(auction);
 

@@ -37,8 +37,7 @@ public class OptimisticConcurrencyTests
                 StartTime = DateTime.UtcNow,
                 EndTime = DateTime.UtcNow.AddMinutes(10),
                 State = AuctionState.Running,
-                HighestAmount = 0m,
-                RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks)
+                HighestAmount = 0m
             };
 
             seed.Auctions.Add(auction);

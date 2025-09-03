@@ -16,7 +16,5 @@ public class Auction
     public Guid? HighestBidId { get; set; }
 
     public List<Bid> Bids { get; set; } = [];
-
-    [Timestamp]
-    public byte[] RowVersion { get; set; } = default!;
+    public long Version { get; set; }
 }

@@ -38,8 +38,7 @@ public class BidOrderingTests
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(5),
             State = AuctionState.Running,
-            HighestAmount = 0,
-            RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks)
+            HighestAmount = 0
         };
         db.Auctions.Add(auction);
         await db.SaveChangesAsync();
@@ -71,8 +70,7 @@ public class BidOrderingTests
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(5),
             State = AuctionState.Running,
-            HighestAmount = 100,
-            RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks)
+            HighestAmount = 100
         };
         db.Auctions.Add(auction);
         await db.SaveChangesAsync();

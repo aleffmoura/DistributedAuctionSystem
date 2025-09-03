@@ -39,10 +39,9 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
             .IsUnique();
 
         modelBuilder.Entity<Auction>()
-            .Property(a => a.RowVersion)
-            .HasColumnType("BLOB")
-            .IsConcurrencyToken()
-            .HasDefaultValue(new byte[8]);
+                    .Property(x => x.Version)
+                    .IsConcurrencyToken()
+                    .HasDefaultValue(0L);
 
         modelBuilder.Entity<Auction>()
             .HasIndex(a => new { a.Region, a.HighestAmount });
@@ -56,22 +55,23 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
-        BumpAuctionRowVersion();
+        BumpAuctionVersion();
         return base.SaveChanges(acceptAllChangesOnSuccess);
     }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
-        BumpAuctionRowVersion();
+        BumpAuctionVersion();
         return base.SaveChangesAsync(cancellationToken);
     }
-
-    private void BumpAuctionRowVersion()
+    private void BumpAuctionVersion()
     {
         foreach (var entry in ChangeTracker.Entries<Auction>()
                                            .Where(e => e.State == EntityState.Modified))
         {
-            entry.Entity.RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks);
+            var prop = entry.Property<long>("Version");
+            var original = prop.OriginalValue;
+            prop.CurrentValue = original + 1;
         }
     }
 }

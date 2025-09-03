@@ -44,8 +44,7 @@ public class ConflictResolutionTests
             Region = "US-East",
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(1),
-            State = AuctionState.Running,
-            RowVersion = BitConverter.GetBytes(DateTime.UtcNow.Ticks)
+            State = AuctionState.Running
         };
         await svc.CreateAuctionAsync(auction);
 
