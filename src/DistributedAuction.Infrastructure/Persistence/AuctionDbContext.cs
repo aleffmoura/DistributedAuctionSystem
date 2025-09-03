@@ -42,6 +42,8 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
             .IsConcurrencyToken()
             .HasDefaultValue(new byte[8]);
 
+        modelBuilder.Entity<Auction>()
+                    .HasIndex(a => new { a.Region, a.HighestAmount });
         modelBuilder.Entity<AuditEntry>()
             .HasIndex(a => new { a.EntityType, a.EntityId, a.OccurredAt });
 

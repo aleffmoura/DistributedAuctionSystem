@@ -20,13 +20,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Using Include="NUnit.Framework" />
+	  <ProjectReference Include="..\src\DistributedAuction.Application\DistributedAuction.Application.csproj" />
+	  <ProjectReference Include="..\src\DistributedAuction.Domain\DistributedAuction.Domain.csproj" />
+	  <ProjectReference Include="..\src\DistributedAuction.Infrastructure\DistributedAuction.Infrastructure.csproj" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\DistributedAuction.Domain\DistributedAuction.Domain.csproj" />
-		<ProjectReference Include="..\DistributedAuction.Application\DistributedAuction.Application.csproj" />
-		<ProjectReference Include="..\DistributedAuction.Infrastructure\DistributedAuction.Infrastructure.csproj" />
+		<Using Include="NUnit.Framework" />
 	</ItemGroup>
 
 </Project>
