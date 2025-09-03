@@ -67,13 +67,16 @@ public class AuctionService : IAuctionService
                 // Partition: enqueue outbox event and return Pending
                 var pendingBid = new Bid
                 {
+                    Id = Guid.NewGuid(),
                     AuctionId = auctionId,
                     UserId = request.UserId,
                     Amount = request.Amount,
                     OriginRegion = request.OriginRegion,
                     WasPending = true,
-                    DeduplicationKey = request.DeduplicationKey ?? Guid.NewGuid().ToString()
+                    DeduplicationKey = request.DeduplicationKey ?? Guid.NewGuid().ToString(),
+                    Timestamp = DateTime.UtcNow
                 };
+
                 // Persist event atomically to avoid loss
                 var payload = JsonSerializer.Serialize(pendingBid);
                 _db.OutboxEvents.Add(new OutboxEvent
@@ -82,7 +85,7 @@ public class AuctionService : IAuctionService
                     AggregateId = pendingBid.Id,
                     EventType = "CrossRegionBid",
                     PayloadJson = payload,
-                    DestinationRegion = request.TargetRegion
+                    DestinationRegion = request.TargetRegion   // região DONA do leilão (ex.: US-East)
                 });
                 await _db.SaveChangesAsync();
                 return BidResult.Pending(pendingBid);
@@ -101,35 +104,38 @@ public class AuctionService : IAuctionService
         var auction = await _auctionRepo.GetForUpdateAsync(auctionId) ?? throw new InvalidOperationException("Auction not found");
         // Deliver pending outbox events destined to this auction's region (simulation in same DB)
         var pending = await _db.OutboxEvents
-            .Where(o => o.ProcessedAt == null && o.DestinationRegion == auction.Region && o.AggregateType == nameof(Bid))
-            .OrderBy(o => o.CreatedAt)
-            .ToListAsync();
+                .Where(o => o.ProcessedAt == null
+                         && o.DestinationRegion == auction.Region
+                         && o.AggregateType == nameof(Bid)
+                         && o.EventType == "CrossRegionBid")
+                .OrderBy(o => o.CreatedAt)
+                .ToListAsync();
 
         foreach (var ev in pending)
         {
             var bid = JsonSerializer.Deserialize<Bid>(ev.PayloadJson)!;
             if (bid.AuctionId != auctionId) { ev.ProcessedAt = DateTime.UtcNow; continue; }
 
-            // If auction ended, only accept bids timestamped before or at EndTime
-            if (auction.State == AuctionState.Ended || auction.State == AuctionState.Reconciled)
+            // Se leilão já terminou, descarte lances com timestamp depois do fim
+            if ((auction.State == AuctionState.Ended || auction.State == AuctionState.Reconciled)
+                && bid.Timestamp > auction.EndTime)
             {
-                if (bid.Timestamp > auction.EndTime) { ev.ProcessedAt = DateTime.UtcNow; continue; }
+                ev.ProcessedAt = DateTime.UtcNow;
+                continue;
             }
-            // Assign sequence freshly to preserve per-auction monotonicity
+
             bid.Sequence = await _sequence.GetNextAsync(auctionId);
-            var acceptance = await _ordering.ValidateBidOrderAsync(auctionId, bid);
-            if (acceptance.Accepted)
+            await _bidRepo.AddAsync(bid);
+
+            if (bid.Amount > auction.HighestAmount)
             {
-                await _bidRepo.AddAsync(bid);
-                if (bid.Amount > auction.HighestAmount)
-                {
-                    auction.HighestAmount = bid.Amount;
-                    auction.HighestBidId = bid.Id;
-                }
+                auction.HighestAmount = bid.Amount;
+                auction.HighestBidId = bid.Id;
+                await _auctionRepo.UpdateAsync(auction);
             }
+
             ev.ProcessedAt = DateTime.UtcNow;
             _db.OutboxEvents.Update(ev);
-            await _db.SaveChangesAsync();
         }
 
         // If time passed, mark auction ended then reconciled
@@ -158,32 +164,10 @@ public class AuctionService : IAuctionService
             return BidResult.Rejected(new Bid { AuctionId = auctionId, UserId = request.UserId, Amount = request.Amount }, "Auction already ended.");
         }
 
-        // Idempotency for retries
         if (!string.IsNullOrWhiteSpace(request.DeduplicationKey))
         {
-            var exists = await _db.Bids.AsNoTracking().AnyAsync(b => b.AuctionId == auctionId && b.DeduplicationKey == request.DeduplicationKey);
-            if (exists)
-            {
-                await tx.RollbackAsync();
-                return BidResult.Accepted(new Bid { AuctionId = auctionId, UserId = request.UserId, Amount = request.Amount });
-            }
-        }
-
-        // Idempotency for retries
-        if (!string.IsNullOrWhiteSpace(request.DeduplicationKey))
-        {
-            var exists = await _db.Bids.AsNoTracking().AnyAsync(b => b.AuctionId == auctionId && b.DeduplicationKey == request.DeduplicationKey);
-            if (exists)
-            {
-                await tx.RollbackAsync();
-                return BidResult.Accepted(new Bid { AuctionId = auctionId, UserId = request.UserId, Amount = request.Amount });
-            }
-        }
-
-        // Idempotency for retries
-        if (!string.IsNullOrWhiteSpace(request.DeduplicationKey))
-        {
-            var exists = await _db.Bids.AsNoTracking().AnyAsync(b => b.AuctionId == auctionId && b.DeduplicationKey == request.DeduplicationKey);
+            var exists = await _db.Bids.AsNoTracking()
+                .AnyAsync(b => b.AuctionId == auctionId && b.DeduplicationKey == request.DeduplicationKey);
             if (exists)
             {
                 await tx.RollbackAsync();
