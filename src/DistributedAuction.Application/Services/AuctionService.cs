@@ -45,15 +45,12 @@ public class AuctionService(
         }
         else
         {
-            // cross-region
             if (await _region.IsRegionReachableAsync(request.TargetRegion))
             {
-                // In this simulation we execute locally; in reality this would RPC to the owner region
                 return await AcceptBidLocally(auctionId, request);
             }
             else
             {
-                // Partition: enqueue outbox event and return Pending
                 var pendingBid = new Bid
                 {
                     Id = Guid.NewGuid(),
@@ -66,7 +63,6 @@ public class AuctionService(
                     Timestamp = DateTime.UtcNow
                 };
 
-                // Persist event atomically to avoid loss
                 var payload = JsonSerializer.Serialize(pendingBid);
                 _db.OutboxEvents.Add(new OutboxEvent
                 {
@@ -74,7 +70,17 @@ public class AuctionService(
                     AggregateId = pendingBid.Id,
                     EventType = "CrossRegionBid",
                     PayloadJson = payload,
-                    DestinationRegion = request.TargetRegion   // região DONA do leilão (ex.: US-East)
+                    DestinationRegion = request.TargetRegion
+                });
+
+                _db.AuditEntries.Add(new AuditEntry
+                {
+                    EntityType = nameof(Bid),
+                    EntityId = pendingBid.Id,
+                    Operation = "PlaceBid",
+                    Region = request.OriginRegion,
+                    UserId = null,
+                    PayloadJson = JsonSerializer.Serialize(pendingBid)
                 });
                 await _db.SaveChangesAsync();
                 return BidResult.Pending(pendingBid);
@@ -84,14 +90,18 @@ public class AuctionService(
 
     public async Task<Auction?> GetAuctionAsync(Guid auctionId, ConsistencyLevel consistency)
     {
-        // For demo both levels read the same DB. If we had replicas, Eventual would read from replica.
+        if (consistency == ConsistencyLevel.Eventual)
+        {
+            await _auctionRepo.GetAsync(auctionId);
+        }
         return await _auctionRepo.GetAsync(auctionId);
     }
 
     public async Task<ReconciliationResult> ReconcileAuctionAsync(Guid auctionId)
     {
-        var auction = await _auctionRepo.GetForUpdateAsync(auctionId) ?? throw new InvalidOperationException("Auction not found");
-        // Deliver pending outbox events destined to this auction's region (simulation in same DB)
+        var auction = await _auctionRepo.GetForUpdateAsync(auctionId)
+            ?? throw new InvalidOperationException("Auction not found");
+
         var pending = await _db.OutboxEvents
                 .Where(o => o.ProcessedAt == null
                          && o.DestinationRegion == auction.Region
@@ -105,7 +115,6 @@ public class AuctionService(
             var bid = JsonSerializer.Deserialize<Bid>(ev.PayloadJson)!;
             if (bid.AuctionId != auctionId) { ev.ProcessedAt = DateTime.UtcNow; continue; }
 
-            // Se leilão já terminou, descarte lances com timestamp depois do fim
             if ((auction.State == AuctionState.Ended || auction.State == AuctionState.Reconciled)
                 && bid.Timestamp > auction.EndTime)
             {
@@ -125,6 +134,15 @@ public class AuctionService(
 
             ev.ProcessedAt = DateTime.UtcNow;
             _db.OutboxEvents.Update(ev);
+            _db.AuditEntries.Add(new AuditEntry
+            {
+                EntityType = nameof(OutboxEvent),
+                EntityId = auction.Id,
+                Operation = "Reconcile",
+                Region = auction.Region,
+                UserId = null,
+                PayloadJson = JsonSerializer.Serialize(auction)
+            });
         }
 
         var eligible = _db.Bids.AsNoTracking()
@@ -139,9 +157,9 @@ public class AuctionService(
         {
             var winner = await eligible
                 .Where(b => b.Amount == topAmount)
-                .OrderBy(b => b.Sequence)   // 1) menor sequence
-                .ThenBy(b => b.CreatedAt)   // 2) timestamp
-                .ThenBy(b => b.Id)          // 3) GUID
+                .OrderBy(b => b.Sequence)  
+                .ThenBy(b => b.CreatedAt)  
+                .ThenBy(b => b.Id)         
                 .FirstAsync();
 
             auction.HighestAmount = winner.Amount;
@@ -149,7 +167,6 @@ public class AuctionService(
             _db.Auctions.Update(auction);
         }
 
-        // If time passed, mark auction ended then reconciled
         if (DateTime.UtcNow >= auction.EndTime && auction.State == AuctionState.Running)
             auction.State = AuctionState.Ended;
         if (auction.State == AuctionState.Ended)
@@ -214,7 +231,6 @@ public class AuctionService(
             await _auctionRepo.UpdateAsync(auction);
         }
 
-        // outbox to other region (at-least-once)
         var otherRegion = request.TargetRegion;
         var payload = JsonSerializer.Serialize(bid);
         _db.OutboxEvents.Add(new OutboxEvent
@@ -226,6 +242,15 @@ public class AuctionService(
             DestinationRegion = otherRegion
         });
         await _db.SaveChangesAsync();
+        _db.AuditEntries.Add(new AuditEntry
+        {
+            EntityType = nameof(Auction),
+            EntityId = auction.Id,
+            Operation = "Create",
+            Region = auction.Region,
+            UserId = null,
+            PayloadJson = JsonSerializer.Serialize(auction)
+        });
         await tx.CommitAsync();
         return BidResult.Accepted(bid);
     }

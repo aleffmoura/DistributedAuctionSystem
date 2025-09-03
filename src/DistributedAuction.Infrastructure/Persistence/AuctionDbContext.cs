@@ -10,6 +10,8 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
     public DbSet<Bid> Bids => Set<Bid>();
     public DbSet<AuctionSequence> AuctionSequences => Set<AuctionSequence>();
     public DbSet<OutboxEvent> OutboxEvents => Set<OutboxEvent>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<PartitionRecovery> PartitionRecoveries => Set<PartitionRecovery>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -20,6 +22,9 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
             .HasValue<Hatchback>("Hatchback")
             .HasValue<Truck>("Truck");
 
+        modelBuilder.Entity<PartitionRecovery>()
+            .HasIndex(p => new { p.AuctionId, p.Region })
+            .IsUnique();
         modelBuilder.Entity<AuctionSequence>().HasKey(s => s.AuctionId);
 
         modelBuilder.Entity<Bid>()
@@ -28,13 +33,19 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
 
         modelBuilder.Entity<Bid>()
             .HasIndex(b => new { b.AuctionId, b.Amount });
-        
+        modelBuilder.Entity<Bid>()
+                  .HasIndex(b => new { b.AuctionId, b.DeduplicationKey })
+                  .IsUnique();
         modelBuilder.Entity<Auction>()
             .Property(a => a.RowVersion)
             .IsRowVersion()
             .IsConcurrencyToken()
             .HasDefaultValue(new byte[8]);
 
-        //makes EF use a DB concurrency token. On Postgres we used a bytea timestamp column created by EF.
+        modelBuilder.Entity<AuditEntry>()
+            .HasIndex(a => new { a.EntityType, a.EntityId, a.OccurredAt });
+
+        modelBuilder.Entity<AuditEntry>()
+            .HasIndex(a => a.Region);
     }
 }
