@@ -1,1 +1,1 @@
-# DistributedAuctionSystem
+# DistributedAuction - Minimal Implementation
