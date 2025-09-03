@@ -27,10 +27,13 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
 
         modelBuilder.Entity<Bid>()
             .HasIndex(b => new { b.AuctionId, b.Amount });
-
+        
         modelBuilder.Entity<Auction>()
             .Property(a => a.RowVersion)
-            .IsRowVersion();
+            .IsRowVersion()
+            .IsConcurrencyToken()
+            .HasDefaultValue(new byte[8]);
+
         //makes EF use a DB concurrency token. On Postgres we used a bytea timestamp column created by EF.
     }
 }

@@ -2,8 +2,12 @@
 
 public class BidRequest
 {
-    public string Region { get; set; }
-    public string TargetRegion { get; set; }
-    public object UserId { get; set; }
-    public object Amount { get; set; }
+    // Region where the bidder is located
+    public string OriginRegion { get; init; } = default!;
+    // Region that owns the auction (where the write must land)
+    public string TargetRegion { get; init; } = default!;
+    public string UserId { get; init; } = default!;
+    public decimal Amount { get; init; }
+    // Optional id to deduplicate retries across partitions/retries
+    public string? DeduplicationKey { get; init; }
 }
