@@ -1,10 +1,11 @@
 ﻿using DistributedAuction.Domain.Entities;
+using DistributedAuction.Domain.Interfaces;
 using DistributedAuction.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace DistributedAuction.Infrastructure.Repositories;
 
-public class BidRepository(AuctionDbContext db)
+public class BidRepository(AuctionDbContext db) : IBidRepository
 {
     private readonly AuctionDbContext _db = db;
 
