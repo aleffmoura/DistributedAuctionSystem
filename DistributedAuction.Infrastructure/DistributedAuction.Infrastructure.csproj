@@ -2,7 +2,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DistributedAuction.Domain\DistributedAuction.Domain.csproj" />
-    <ProjectReference Include="..\DistributedAuction.Application\DistributedAuction.Application.csproj" />
   </ItemGroup>
 
   <ItemGroup>
