@@ -1,6 +1,7 @@
 ﻿using DistributedAuction.Application.Services;
 using DistributedAuction.Domain.Entities;
 using DistributedAuction.Domain.Enums;
+using DistributedAuction.Domain.Interfaces;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
@@ -10,16 +11,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DistributedAuction.Tests;
 
-public class PartitionSimulationTests
+public class CrossRegionBiddingTests
 {
     [Test]
-    public async Task PartitionScenario_NoBidLost_WinnerCorrect()
+    public async Task CrossRegionBid_NoPartition_AcceptsAndSyncs()
     {
+        // SQLite in-memory p/ suportar transações
         var conn = new SqliteConnection("DataSource=:memory:");
         conn.Open();
 
         var options = new DbContextOptionsBuilder<AuctionDbContext>()
             .UseSqlite(conn)
+            .EnableSensitiveDataLogging()
             .Options;
 
         await using var db = new AuctionDbContext(options);
@@ -29,14 +32,17 @@ public class PartitionSimulationTests
         var bidRepo = new BidRepository(db);
         var sequence = new FakeSequenceService();
         var ordering = new BidOrderingService(sequence, db);
-        var coordinator = new RegionCoordinator("US-East", "EU-West");
+        var coordinator = new RegionCoordinator("US-East", "EU-West"); // por padrão, link OK
         var resolver = new ConflictResolver();
         var svc = new AuctionService(auctionRepo, bidRepo, sequence, ordering, coordinator, resolver, db);
+
+        // SUT extra: sync service
+        IDatabaseSyncService sync = new DatabaseSyncService(db, svc);
 
         var auction = new Auction
         {
             VehicleId = Guid.NewGuid(),
-            Region = "US-East",
+            Region = "US-East", // dono do leilão
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(1),
             State = AuctionState.Running,
@@ -44,36 +50,25 @@ public class PartitionSimulationTests
         };
         await svc.CreateAuctionAsync(auction);
 
-        // Simulate partition
-        coordinator.SimulatePartition("US-East", "EU-West");
-
-        // EU user bids on US auction during partition -> pending
-        var euResult = await svc.PlaceBidAsync(auction.Id, new BidRequest
+        // EU dá lance num leilão US (sem partição)
+        var result = await svc.PlaceBidAsync(auction.Id, new BidRequest
         {
             OriginRegion = "EU-West",
             TargetRegion = "US-East",
             UserId = "EU-User",
-            Amount = 120
+            Amount = 200
         });
-        euResult.Status.Should().Be(BidStatus.PendingPartition);
 
-        // US user bids locally -> accepted
-        var usResult = await svc.PlaceBidAsync(auction.Id, new BidRequest
-        {
-            OriginRegion = "US-East",
-            TargetRegion = "US-East",
-            UserId = "US-User",
-            Amount = 130
-        });
-        usResult.Status.Should().Be(BidStatus.Accepted);
+        result.Status.Should().Be(BidStatus.Accepted);
         (await db.Bids.CountAsync(b => b.AuctionId == auction.Id)).Should().Be(1);
 
-        // Heal and reconcile -> deliver pending EU bid, but US still wins
-        coordinator.HealPartition("US-East", "EU-West");
-        var rec = await svc.ReconcileAuctionAsync(auction.Id);
-        rec.Success.Should().BeTrue();
+        // Sincroniza outbox destinada à EU-West (BidAccepted destinado ao "peer")
+        var processed = await sync.PushOutboxAsync("EU-West");
+        processed.Should().BeGreaterThan(0);
+
+        // Estado do leilão no dono deve refletir o lance
         var loaded = await svc.GetAuctionAsync(auction.Id, ConsistencyLevel.Strong);
-        loaded!.HighestAmount.Should().Be(130);
-        (await db.Bids.CountAsync(b => b.AuctionId == auction.Id)).Should().Be(2);
+        loaded!.HighestAmount.Should().Be(200);
+        loaded.State.Should().Be(AuctionState.Running);
     }
 }

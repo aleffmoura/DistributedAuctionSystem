@@ -13,4 +13,5 @@ public class Bid
     public string OriginRegion { get; set; } = default!;
     public bool WasPending { get; set; } = false; // true if accepted locally but awaiting cross-region sync
     public string? DeduplicationKey { get; set; } // optional
+    public DateTime CreatedAt { get; set; }
 }

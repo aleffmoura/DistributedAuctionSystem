@@ -13,7 +13,8 @@ public class AuctionDbContext(DbContextOptions<AuctionDbContext> opts) : DbConte
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<Vehicle>().HasDiscriminator<string>("VehicleType")
+        modelBuilder.Entity<Vehicle>()
+            .HasDiscriminator<string>("VehicleType")
             .HasValue<Sedan>("Sedan")
             .HasValue<Suv>("SUV")
             .HasValue<Hatchback>("Hatchback")
