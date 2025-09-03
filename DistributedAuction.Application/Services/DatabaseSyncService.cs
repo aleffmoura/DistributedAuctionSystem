@@ -6,16 +6,10 @@ using System.Text.Json;
 
 namespace DistributedAuction.Application.Services;
 
-public class DatabaseSyncService : IDatabaseSyncService
+public class DatabaseSyncService(AuctionDbContext db, IAuctionService auctionService) : IDatabaseSyncService
 {
-    private readonly AuctionDbContext _db;
-    private readonly IAuctionService _auctionService;
-
-    public DatabaseSyncService(AuctionDbContext db, IAuctionService auctionService)
-    {
-        _db = db;
-        _auctionService = auctionService;
-    }
+    private readonly AuctionDbContext _db = db;
+    private readonly IAuctionService _auctionService = auctionService;
 
     public async Task<int> PushOutboxAsync(string destinationRegion, CancellationToken ct = default)
     {
@@ -29,7 +23,6 @@ public class DatabaseSyncService : IDatabaseSyncService
             switch (e.EventType)
             {
                 case "CrossRegionBid":
-                    // Payload é um Bid pendente; reconciliação aplicará o lance no leilão de destino.
                     var bid = JsonSerializer.Deserialize<Bid>(e.PayloadJson)!;
                     await _auctionService.ReconcileAuctionAsync(bid.AuctionId);
                     e.ProcessedAt = DateTime.UtcNow;
@@ -37,14 +30,11 @@ public class DatabaseSyncService : IDatabaseSyncService
                     break;
 
                 case "BidAccepted":
-                    // Nesso demo, o dono do leilão já aplicou o lance.
-                    // Aqui apenas marcamos como entregue (em real: atualizaria caches/leitores).
                     e.ProcessedAt = DateTime.UtcNow;
                     _db.OutboxEvents.Update(e);
                     break;
 
                 default:
-                    // Eventos desconhecidos: marcar como processado para não travar fila.
                     e.ProcessedAt = DateTime.UtcNow;
                     _db.OutboxEvents.Update(e);
                     break;

@@ -9,33 +9,22 @@ using System.Text.Json;
 
 namespace DistributedAuction.Application.Services;
 
-public class AuctionService : IAuctionService
+public class AuctionService(
+    IAuctionRepository auctionRepo,
+    IBidRepository bidRepo,
+    IAuctionSequenceService sequenceService,
+    IBidOrderingService orderingService,
+    IRegionCoordinator regionCoordinator,
+    IConflictResolver conflictResolver,
+    AuctionDbContext db) : IAuctionService
 {
-    private readonly IAuctionRepository _auctionRepo;
-    private readonly IBidRepository _bidRepo;
-    private readonly IBidOrderingService _ordering;
-    private readonly IAuctionSequenceService _sequence;
-    private readonly IRegionCoordinator _region;
-    private readonly IConflictResolver _resolver;
-    private readonly AuctionDbContext _db;
-
-    public AuctionService(
-        IAuctionRepository auctionRepo,
-        IBidRepository bidRepo,
-        IAuctionSequenceService sequenceService,
-        IBidOrderingService orderingService,
-        IRegionCoordinator regionCoordinator,
-        IConflictResolver conflictResolver,
-        AuctionDbContext db)
-    {
-        _auctionRepo = auctionRepo;
-        _bidRepo = bidRepo;
-        _sequence = sequenceService;
-        _ordering = orderingService;
-        _region = regionCoordinator;
-        _resolver = conflictResolver;
-        _db = db;
-    }
+    private readonly IAuctionRepository _auctionRepo = auctionRepo;
+    private readonly IBidRepository _bidRepo = bidRepo;
+    private readonly IBidOrderingService _ordering = orderingService;
+    private readonly IAuctionSequenceService _sequence = sequenceService;
+    private readonly IRegionCoordinator _region = regionCoordinator;
+    private readonly IConflictResolver _resolver = conflictResolver;
+    private readonly AuctionDbContext _db = db;
 
     public async Task<Auction> CreateAuctionAsync(Auction auction)
     {
@@ -138,6 +127,28 @@ public class AuctionService : IAuctionService
             _db.OutboxEvents.Update(ev);
         }
 
+        var eligible = _db.Bids.AsNoTracking()
+            .Where(b => b.AuctionId == auctionId);
+
+        if (DateTime.UtcNow >= auction.EndTime || auction.State is AuctionState.Ended or AuctionState.Reconciled)
+            eligible = eligible.Where(b => b.Timestamp <= auction.EndTime);
+
+        var topAmount = await eligible.Select(b => (decimal?)b.Amount).MaxAsync() ?? 0m;
+
+        if (topAmount > 0)
+        {
+            var winner = await eligible
+                .Where(b => b.Amount == topAmount)
+                .OrderBy(b => b.Sequence)   // 1) menor sequence
+                .ThenBy(b => b.CreatedAt)   // 2) timestamp
+                .ThenBy(b => b.Id)          // 3) GUID
+                .FirstAsync();
+
+            auction.HighestAmount = winner.Amount;
+            auction.HighestBidId = winner.Id;
+            _db.Auctions.Update(auction);
+        }
+
         // If time passed, mark auction ended then reconciled
         if (DateTime.UtcNow >= auction.EndTime && auction.State == AuctionState.Running)
             auction.State = AuctionState.Ended;
@@ -166,15 +177,15 @@ public class AuctionService : IAuctionService
 
         if (!string.IsNullOrWhiteSpace(request.DeduplicationKey))
         {
-            var exists = await _db.Bids.AsNoTracking()
-                .AnyAsync(b => b.AuctionId == auctionId && b.DeduplicationKey == request.DeduplicationKey);
-            if (exists)
-            {
-                await tx.RollbackAsync();
-                return BidResult.Accepted(new Bid { AuctionId = auctionId, UserId = request.UserId, Amount = request.Amount });
-            }
-        }
+            var exists = await _db.Bids
+                .AsNoTracking()
+                .FirstOrDefaultAsync(b =>
+                    b.AuctionId == auctionId &&
+                    b.DeduplicationKey == request.DeduplicationKey);
 
+            if (exists is not null)
+                return BidResult.Accepted(exists);
+        }
         var seq = await _sequence.GetNextAsync(auctionId);
         var bid = new Bid
         {
