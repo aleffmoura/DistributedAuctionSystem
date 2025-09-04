@@ -6,6 +6,96 @@ Schema design supports inheritance, ordering guarantees, audit trail, and recove
 
 ---
 
+## Diagram ER - you can see the results on: https://www.mermaidchart.com
+````
+erDiagram
+    %% =========================
+    %% Entities
+    %% =========================
+
+    Vehicles {
+        GUID Id
+        string Make
+        string Model
+        int Year
+        string Region
+        string VehicleType
+    }
+
+    Auctions {
+        GUID Id
+        GUID VehicleId
+        string Region
+        datetime StartTime
+        datetime EndTime
+        int State
+        GUID HighestBidId
+        decimal HighestAmount
+        long Version
+    }
+
+    Bids {
+        GUID Id
+        GUID AuctionId
+        string UserId
+        decimal Amount
+        long Sequence
+        string OriginRegion
+        string DeduplicationKey
+        datetime Timestamp
+        bool WasPending
+        datetime CreatedAt
+    }
+
+    OutboxEvents {
+        GUID Id
+        string AggregateType
+        GUID AggregateId
+        string EventType
+        string PayloadJson
+        string DestinationRegion
+        datetime CreatedAt
+        datetime ProcessedAt
+    }
+
+    AuditEntries {
+        GUID Id
+        string EntityType
+        GUID EntityId
+        string Operation
+        string Region
+        string UserId
+        string PayloadJson
+        datetime OccurredAt
+    }
+
+    PartitionRecovery {
+        GUID Id
+        GUID AuctionId
+        string Region
+        datetime LastProcessedEventAt
+    }
+
+    %% =========================
+    %% Relationships
+    %% =========================
+
+    Vehicles ||--o{ Auctions : "lists"
+    Auctions ||--o{ Bids : "has"
+    Auctions }o..|| Bids : "HighestBidId"
+
+    Auctions ||--o{ PartitionRecovery : "recovery entries"
+
+    Auctions ||--o{ OutboxEvents : "events (AggregateType='Auction')"
+    Bids     ||--o{ OutboxEvents : "events (AggregateType='Bid')"
+
+    Auctions ||--o{ AuditEntries : "audit"
+    Bids     ||--o{ AuditEntries : "audit"
+    Vehicles ||--o{ AuditEntries : "audit"
+
+````
+
+
 ## Schema
 
 ### Vehicles
@@ -33,6 +123,8 @@ Schema design supports inheritance, ordering guarantees, audit trail, and recove
 - `OriginRegion`
 - `DeduplicationKey`
 - `Timestamp`
+- `WasPending (bool)`
+- `CreatedAt (DateTime)`
 - Indexes:
   - `(AuctionId, Sequence)` unique
   - `(AuctionId, DeduplicationKey)` unique
@@ -46,6 +138,7 @@ Schema design supports inheritance, ordering guarantees, audit trail, and recove
 - `PayloadJson`
 - `DestinationRegion`
 - `CreatedAt`, `ProcessedAt (nullable)`
+- **Index**: `(DestinationRegion, CreatedAt)`
 
 ### AuditEntries
 - `Id (GUID, PK)`
@@ -61,7 +154,7 @@ Schema design supports inheritance, ordering guarantees, audit trail, and recove
 - `Id (GUID, PK)`
 - `AuctionId`
 - `Region`
-- `RecoveryState`
+- `LastProcessedEventAt (DateTime)`
 - Unique index `(AuctionId, Region)`
 
 ---
