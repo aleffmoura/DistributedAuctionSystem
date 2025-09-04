@@ -6,6 +6,15 @@ It demonstrates partition handling, CAP theorem trade-offs, consistency guarante
 
 ---
 
+## Documentation
+Additional design and decision documents are available in the [`docs/`](./docs) folder:
+
+- **Architecture.md** – system architecture and components
+- **CAP.md** – CAP theorem trade-offs and consistency decisions
+- **ConflictResolution.md** – deterministic conflict handling strategies
+- **Database.md** – schema design, indexing, and transaction boundaries
+---
+
 ## Features
 - Vehicle management (CRUD, region-specific).
 - English auction (ascending bids).
