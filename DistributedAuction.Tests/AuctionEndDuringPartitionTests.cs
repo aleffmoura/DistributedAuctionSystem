@@ -3,6 +3,7 @@ using DistributedAuction.Domain.Enums;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
+using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,7 +19,7 @@ public class AuctionEndDuringPartitionTests
 
         using var db = new AuctionDbContext(opt);
         await db.Database.OpenConnectionAsync();
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
 
         var auctionRepo = new AuctionRepository(db);
         var bidRepo = new BidRepository(db);

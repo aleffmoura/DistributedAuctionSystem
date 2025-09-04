@@ -4,6 +4,7 @@ using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
 using DistributedAuction.Infrastructure.Services;
+using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -27,7 +28,7 @@ public class LoadSimulationTests
             .UseSqlite(keeper) // usa a conexão já aberta
             .Options;
         await using (var init = new AuctionDbContext(initOptions))
-            await init.Database.EnsureCreatedAsync();
+            await init.Database.MigrateAsync();
 
         // 4) Função fábrica para criar contexto/serviço NOVOS (e conexão nova) por task
         AuctionService CreateService(out AuctionDbContext ctx)

@@ -5,6 +5,7 @@ using DistributedAuction.Domain.Interfaces;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
+using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -26,7 +27,7 @@ public class CrossRegionBiddingTests
             .Options;
 
         await using var db = new AuctionDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
 
         var auctionRepo = new AuctionRepository(db);
         var bidRepo = new BidRepository(db);

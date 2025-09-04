@@ -8,7 +8,8 @@ public class AuctionDbContextDesignTimeDbContextFactory : IDesignTimeDbContextFa
     public AuctionDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<AuctionDbContext>();
-        optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=distributedauction;Username=postgres;Password=postgres");
+        //optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=distributedauction;Username=postgres;Password=postgres");
+        optionsBuilder.UseSqlite("Data Source=auction.design.db");
 
         return new AuctionDbContext(optionsBuilder.Options);
     }

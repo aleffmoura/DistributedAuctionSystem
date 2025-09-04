@@ -38,8 +38,7 @@ public class EndToEndPartitionFlowTests
             .Options;
 
         _db = new AuctionDbContext(opts);
-        await _db.Database.EnsureCreatedAsync();
-
+        await _db.Database.MigrateAsync();
         // Repositories & services (use os concretos do seu projeto)
         _auctionRepo = new AuctionRepository(_db);
         _bidRepo = new BidRepository(_db);

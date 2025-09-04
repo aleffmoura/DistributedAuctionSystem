@@ -3,6 +3,7 @@ using DistributedAuction.Domain.Entities;
 using DistributedAuction.Domain.Enums;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Services;
+using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -107,7 +108,7 @@ public class BidOrderingTests
             .Options;
 
         var db = new AuctionDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
         return db;
     }
 }

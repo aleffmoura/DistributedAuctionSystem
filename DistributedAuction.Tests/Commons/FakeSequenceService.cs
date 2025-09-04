@@ -1,6 +1,6 @@
 ﻿using DistributedAuction.Domain.Interfaces;
 
-namespace DistributedAuction.Tests;
+namespace DistributedAuction.Tests.Commons;
 
 public class FakeSequenceService : IAuctionSequenceService
 {

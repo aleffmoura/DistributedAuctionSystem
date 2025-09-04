@@ -1,4 +1,4 @@
-# Distributed Car Auction Platform
+ï»¿# Distributed Car Auction Platform
 
 ## Overview
 This project is a **technical challenge implementation** of a distributed auction system spanning **US-East** and **EU-West** regions.  
@@ -9,10 +9,26 @@ It demonstrates partition handling, CAP theorem trade-offs, consistency guarante
 ## Documentation
 Additional design and decision documents are available in the [`docs/`](./docs) folder:
 
-- **Architecture.md** – system architecture and components
-- **CAP.md** – CAP theorem trade-offs and consistency decisions
-- **ConflictResolution.md** – deterministic conflict handling strategies
-- **Database.md** – schema design, indexing, and transaction boundaries
+- **Architecture.md** â€“ system architecture and components
+- **CAP.md** â€“ CAP theorem trade-offs and consistency decisions
+- **ConflictResolution.md** â€“ deterministic conflict handling strategies
+- **Database.md** â€“ schema design, indexing, and transaction boundaries
+---
+
+## ðŸ”Ž Test (end-to-end)
+The complete challenge scenario (partition, EUâ†”US bids, completion during partition, reconciliation, no loss) is covered by this test:
+Test name: (fully qualified)
+DistributedAuction.Tests.EndToEndPartitionFlowTests.Auction_partition_end_to_end_should_select_correct_winner_and_lose_no_bids
+
+- how to run only this one: 
+dotnet test --filter "FullyQualifiedName~DistributedAuction.Tests.EndToEndPartitionFlowTests.Auction_partition_end_to_end_should_select_correct_winner_and_lose_no_bids"
+
+- run all class end-to-end
+dotnet test --filter "FullyQualifiedName~DistributedAuction.Tests.EndToEndPartitionFlowTests"
+
+- logs verbosity
+dotnet test -l "console;verbosity=detailed"
+
 ---
 
 ## Features

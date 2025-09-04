@@ -6,6 +6,7 @@ using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
 using DistributedAuction.Infrastructure.Services;
+using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -38,7 +39,7 @@ public class DbTransactionRollbackTests
 
         // schema
         await using (var init = new AuctionDbContext(options))
-            await init.Database.EnsureCreatedAsync();
+            await init.Database.MigrateAsync();
 
         // usa o DbContext com toggle
         await using var db = new ThrowingDbContext(options);

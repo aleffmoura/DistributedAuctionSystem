@@ -27,7 +27,7 @@ public class OptimisticConcurrencyTests
         // 2) Cria schema e semeia um leilão com RowVersion inicial
         await using (var seed = new AuctionDbContext(options))
         {
-            await seed.Database.EnsureCreatedAsync();
+            await seed.Database.MigrateAsync();
 
             var auction = new Auction
             {

@@ -4,6 +4,7 @@ using DistributedAuction.Domain.Enums;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
+using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +22,7 @@ public class ConflictResolutionTests
             .EnableSensitiveDataLogging()
             .Options;
         var db = new AuctionDbContext(options);
-        await db.Database.EnsureCreatedAsync();
+        await db.Database.MigrateAsync();
         return db;
     }
 

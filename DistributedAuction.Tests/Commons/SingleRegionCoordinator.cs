@@ -1,7 +1,7 @@
 ﻿using DistributedAuction.Domain.Enums;
 using DistributedAuction.Domain.Interfaces;
 
-namespace DistributedAuction.Tests;
+namespace DistributedAuction.Tests.Commons;
 
 internal sealed class SingleRegionCoordinator : IRegionCoordinator
 {
