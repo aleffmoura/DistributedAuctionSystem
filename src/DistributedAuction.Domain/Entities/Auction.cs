@@ -1,5 +1,4 @@
 ﻿using DistributedAuction.Domain.Enums;
-using System.ComponentModel.DataAnnotations;
 
 namespace DistributedAuction.Domain.Entities;
 

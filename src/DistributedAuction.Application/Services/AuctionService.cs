@@ -26,9 +26,19 @@ public class AuctionService(
     private readonly IConflictResolver _resolver = conflictResolver;
     private readonly AuctionDbContext _db = db;
 
-    public async Task<Auction> CreateAuctionAsync(Auction auction)
+    public async Task<Auction> CreateAuctionAsync(CreateAuctionRequest auctionRequest)
     {
         // CP: single-owner region write with strong guarantees
+        var auction = new Auction
+        {
+            Id = Guid.NewGuid(),
+            VehicleId = auctionRequest.VehicleId,
+            EndTime = auctionRequest.EndTime,
+            StartTime = auctionRequest.StartTime,
+            Region = auctionRequest.Region,
+            State = auctionRequest.State,
+        };
+
         if (auction.StartTime == default) auction.StartTime = DateTime.UtcNow;
         if (auction.EndTime <= auction.StartTime) auction.EndTime = auction.StartTime.AddMinutes(5);
         auction.State = AuctionState.Running;

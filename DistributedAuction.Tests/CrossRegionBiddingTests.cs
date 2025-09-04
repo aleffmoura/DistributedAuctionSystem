@@ -39,7 +39,7 @@ public class CrossRegionBiddingTests
         // SUT extra: sync service
         IDatabaseSyncService sync = new DatabaseSyncService(db, svc);
 
-        var auction = new Auction
+        var auctionReq = new CreateAuctionRequest
         {
             VehicleId = Guid.NewGuid(),
             Region = "US-East", // dono do leilão
@@ -47,7 +47,7 @@ public class CrossRegionBiddingTests
             EndTime = DateTime.UtcNow.AddMinutes(1),
             State = AuctionState.Running
         };
-        await svc.CreateAuctionAsync(auction);
+        var auction = await svc.CreateAuctionAsync(auctionReq);
 
         // EU dá lance num leilão US (sem partição)
         var result = await svc.PlaceBidAsync(auction.Id, new BidRequest

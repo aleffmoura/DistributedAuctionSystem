@@ -1,5 +1,4 @@
 ﻿using DistributedAuction.Application.Services;
-using DistributedAuction.Domain.Entities;
 using DistributedAuction.Domain.Enums;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
@@ -29,7 +28,7 @@ public class AuctionEndDuringPartitionTests
 
         var svc = new AuctionService(auctionRepo, bidRepo, seq, new BidOrderingService(seq, db), regional, resolver, db);
 
-        var auction = new Auction
+        var auctionReq = new CreateAuctionRequest
         {
             Region = "US-East",
             VehicleId = Guid.NewGuid(),
@@ -37,7 +36,7 @@ public class AuctionEndDuringPartitionTests
             StartTime = DateTime.UtcNow.AddMinutes(-1),
             EndTime = DateTime.UtcNow.AddSeconds(5) // termina enquanto particionado
         };
-        await svc.CreateAuctionAsync(auction);
+        var auction = await svc.CreateAuctionAsync(auctionReq);
 
         regional.SimulatePartition("US-East", "EU-West");
 

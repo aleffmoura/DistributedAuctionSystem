@@ -38,7 +38,7 @@ public class ConflictResolutionTests
         var resolver = new ConflictResolver();
         var svc = new AuctionService(auctionRepo, bidRepo, sequence, ordering, coordinator, resolver, db);
 
-        var auction = new Auction
+        var auctionReq = new CreateAuctionRequest
         {
             VehicleId = Guid.NewGuid(),
             Region = "US-East",
@@ -46,7 +46,7 @@ public class ConflictResolutionTests
             EndTime = DateTime.UtcNow.AddMinutes(1),
             State = AuctionState.Running
         };
-        await svc.CreateAuctionAsync(auction);
+        var auction = await svc.CreateAuctionAsync(auctionReq);
 
         // 1) US dá lance 150 (aceito localmente, seq menor)
         var us = await svc.PlaceBidAsync(auction.Id, new BidRequest

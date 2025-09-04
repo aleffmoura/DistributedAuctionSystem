@@ -22,7 +22,7 @@ public class BidOrderingService : IBidOrderingService
 
     public async Task<BidAcceptance> ValidateBidOrderAsync(Guid auctionId, Bid bid)
     {
-        // 1) Sequência monotônica (não precisa ser consecutiva, mas deve ser estritamente maior)
+        // 1) Monotonic sequence (does not need to be consecutive, but must be strictly greater)
         var lastSeq = await _db.Bids
             .Where(b => b.AuctionId == auctionId)
             .Select(b => (long?)b.Sequence)
@@ -32,7 +32,7 @@ public class BidOrderingService : IBidOrderingService
         if (bid.Sequence <= lastSeq)
             return new BidAcceptance(false, $"Sequence must be greater than {lastSeq}.");
 
-        // 2) Ascendência de valor (English auction)
+        // 2) Value ascending order (English auction rule)
         var highest = await _db.Auctions
             .Where(a => a.Id == auctionId)
             .Select(a => a.HighestAmount)

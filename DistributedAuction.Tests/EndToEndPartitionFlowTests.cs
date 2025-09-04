@@ -73,16 +73,15 @@ public class EndToEndPartitionFlowTests
     public async Task Auction_partition_end_to_end_should_select_correct_winner_and_lose_no_bids()
     {
         // arrange: cria auction em US-East com window curta
-        var auction = new Auction
+        var auctionReq = new CreateAuctionRequest
         {
-            Id = Guid.NewGuid(),
             VehicleId = Guid.NewGuid(),
             Region = "US-East",
             StartTime = DateTime.UtcNow.AddSeconds(-5),
             EndTime = DateTime.UtcNow.AddSeconds(10),
             State = AuctionState.Created
         };
-        await _svc.CreateAuctionAsync(auction);
+        var auction = await _svc.CreateAuctionAsync(auctionReq);
 
         // Simula partição US <-> EU
         // (ajuste os métodos conforme sua implementação de RegionCoordinator)
@@ -141,16 +140,15 @@ public class EndToEndPartitionFlowTests
     public async Task Cross_region_healthy_network_executes_in_owner_region()
     {
         // arrange: auction em US
-        var auction = new Auction
+        var auctionReq = new CreateAuctionRequest
         {
-            Id = Guid.NewGuid(),
             VehicleId = Guid.NewGuid(),
             Region = "US-East",
             StartTime = DateTime.UtcNow.AddSeconds(-5),
             EndTime = DateTime.UtcNow.AddSeconds(30),
             State = AuctionState.Created
         };
-        await _svc.CreateAuctionAsync(auction);
+        var auction = await _svc.CreateAuctionAsync(auctionReq);
 
         // Garante rede saudável (sem partição)
         // (Se seu RegionCoordinator inicia saudável por padrão, não precisa de nada aqui)

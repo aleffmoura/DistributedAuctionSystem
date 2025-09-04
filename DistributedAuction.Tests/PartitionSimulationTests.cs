@@ -33,7 +33,7 @@ public class PartitionSimulationTests
         var resolver = new ConflictResolver();
         var svc = new AuctionService(auctionRepo, bidRepo, sequence, ordering, coordinator, resolver, db);
 
-        var auction = new Auction
+        var auctionReq = new CreateAuctionRequest
         {
             VehicleId = Guid.NewGuid(),
             Region = "US-East",
@@ -41,7 +41,7 @@ public class PartitionSimulationTests
             EndTime = DateTime.UtcNow.AddMinutes(1),
             State = AuctionState.Running
         };
-        await svc.CreateAuctionAsync(auction);
+        var auction = await svc.CreateAuctionAsync(auctionReq);
 
         // Simulate partition
         coordinator.SimulatePartition("US-East", "EU-West");

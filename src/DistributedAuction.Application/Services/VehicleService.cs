@@ -13,7 +13,7 @@ public class VehicleService(IVehicleRepository repo, AuctionDbContext db) : IVeh
 
     public async Task<Vehicle> CreateAsync(Vehicle vehicle)
     {
-        // CP write: transação forte local (região dona)
+        // CP write: local strong transaction (owner region)
         await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
         await _repo.AddAsync(vehicle);
         await tx.CommitAsync();
@@ -27,7 +27,7 @@ public class VehicleService(IVehicleRepository repo, AuctionDbContext db) : IVeh
 
     public async Task<Vehicle> UpdateAsync(Vehicle vehicle)
     {
-        // valida escopo regional (não cruzar regiões)
+        // validates regional scope (does not cross regions)
         var exists = await _repo.ExistsInRegionAsync(vehicle.Id, vehicle.Region);
         if (!exists) throw new InvalidOperationException("Vehicle not found in this region.");
         await _repo.UpdateAsync(vehicle);

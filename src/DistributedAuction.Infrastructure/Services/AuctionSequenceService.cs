@@ -13,10 +13,10 @@ public class AuctionSequenceService(AuctionDbContext db) : IAuctionSequenceServi
 
     public async Task<long> GetNextAsync(Guid auctionId)
     {
-        // Se já há uma transação ativa (ex.: AcceptBidLocally), NÃO começamos outra.
+        // If there is already an active transaction (e.g. AcceptBidLocally), we DO NOT start another one.
         var hasAmbientTx = _db.Database.CurrentTransaction is not null;
 
-        // Abrimos transação própria SÓ se necessário (fora de um fluxo transacional).
+        // We open our own transaction ONLY if necessary (outside of a transactional flow).
         IDbContextTransaction? localTx = null;
         if (!hasAmbientTx)
         {
@@ -25,7 +25,7 @@ public class AuctionSequenceService(AuctionDbContext db) : IAuctionSequenceServi
 
         try
         {
-            // Carrega ou cria o registro de sequência do leilão
+            // Loads or creates the auction sequence record
             var seq = await _db.AuctionSequences
                 .SingleOrDefaultAsync(x => x.AuctionId == auctionId);
 
