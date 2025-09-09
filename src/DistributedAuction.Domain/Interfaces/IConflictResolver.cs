@@ -4,5 +4,5 @@ namespace DistributedAuction.Domain.Interfaces;
 
 public interface IConflictResolver
 {
-    Bid Resolve(IEnumerable<Bid> bids);
+    Bid Resolve(Auction auction, IEnumerable<Bid> bids);
 }

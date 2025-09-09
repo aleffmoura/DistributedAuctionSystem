@@ -1,21 +1,29 @@
 ﻿using DistributedAuction.Application.Services;
-using DistributedAuction.Domain.Entities;
+using DistributedAuction.Domain.DomainServices.Implementations.Auctions;
+using DistributedAuction.Domain.DomainServices.Implementations.Bids;
 using DistributedAuction.Domain.Enums;
+using DistributedAuction.Domain.Interfaces;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Services;
 using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 
 namespace DistributedAuction.Tests;
 public class BidOrderingTests
 {
+    private AuctionDomainService _domainService = new();
+    private BidDomainService _bidDomainService;
+    private AuctionSequenceService seqService;
+
     [Test]
     public async Task SequencesAreMonotonicUnderConcurrency()
     {
         await using var db = await NewDbAsync();
-        var seqService = new FakeSequenceService();
+        seqService = new AuctionSequenceService(db);
+        _bidDomainService = new(seqService);
         var auctionId = Guid.NewGuid();
 
         var tasks = Enumerable.Range(0, 50).Select(async _ => await seqService.GetNextAsync(auctionId)).ToArray();
@@ -28,28 +36,48 @@ public class BidOrderingTests
     public async Task GetOrderedBidsAsync_Returns_StrictlyOrderedBySequence()
     {
         await using var db = await NewDbAsync();
-        var seqSvc = new FakeSequenceService();
+        var seqSvc = new AuctionSequenceService(db);
+        _bidDomainService = new(seqSvc);
         var ordering = new BidOrderingService(seqSvc, db);
 
-        var auction = new Auction
+        var auction = _domainService.Create(new Domain.Models.CreateAuctionRequest
         {
-            Id = Guid.NewGuid(),
             VehicleId = Guid.NewGuid(),
             Region = "US-East",
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(5),
-            State = AuctionState.Running,
-            HighestAmount = 0
-        };
+            State = AuctionState.Running
+        });
+
         db.Auctions.Add(auction);
         await db.SaveChangesAsync();
 
-        // Inserimos propositalmente fora de ordem (seq 3, 1, 2)
-        db.Bids.AddRange(
-            new Bid { Id = Guid.NewGuid(), AuctionId = auction.Id, UserId = "u", Amount = 10, Sequence = 3, CreatedAt = DateTime.UtcNow.AddSeconds(3), OriginRegion = "US-East" },
-            new Bid { Id = Guid.NewGuid(), AuctionId = auction.Id, UserId = "u", Amount = 10, Sequence = 1, CreatedAt = DateTime.UtcNow.AddSeconds(1), OriginRegion = "US-East" },
-            new Bid { Id = Guid.NewGuid(), AuctionId = auction.Id, UserId = "u", Amount = 10, Sequence = 2, CreatedAt = DateTime.UtcNow.AddSeconds(2), OriginRegion = "US-East" }
-        );
+        var bid1 = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "u",
+            Amount = 10,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "3"
+        }, false, 3);
+        var bid2 = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "u",
+            Amount = 10,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "1"
+        }, false, 1);
+        var bid3 = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "u",
+            Amount = 10,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "2"
+        }, false, 2);
+
+        db.Bids.AddRange(bid1, bid2, bid3);
         await db.SaveChangesAsync();
 
         var ordered = (await ordering.GetOrderedBidsAsync(auction.Id)).ToList();
@@ -60,40 +88,78 @@ public class BidOrderingTests
     public async Task ValidateBidOrderAsync_Rejects_NonAscendingAmount_And_NonMonotonicSequence()
     {
         await using var db = await NewDbAsync();
-        var seqSvc = new FakeSequenceService();
+        var seqSvc = new AuctionSequenceService(db);
         var ordering = new BidOrderingService(seqSvc, db);
 
-        var auction = new Auction
+        var auction = _domainService.Create(new Domain.Models.CreateAuctionRequest
         {
-            Id = Guid.NewGuid(),
             VehicleId = Guid.NewGuid(),
             Region = "US-East",
             StartTime = DateTime.UtcNow,
             EndTime = DateTime.UtcNow.AddMinutes(5),
-            State = AuctionState.Running,
-            HighestAmount = 100
-        };
+            State = AuctionState.Running
+        });
+        var bid = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "u",
+            Amount = 100,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "1"
+        }, false, 3);
+
+        auction = await
+            _domainService.UpdateIfWinner(auction, bid, new Mock<IAuctionRepository>().Object);
+
         db.Auctions.Add(auction);
         await db.SaveChangesAsync();
 
-        // Simula já existir um bid com seq 5
-        db.Bids.Add(new Bid { Id = Guid.NewGuid(), AuctionId = auction.Id, UserId = "a", Amount = 120, Sequence = 5, CreatedAt = DateTime.UtcNow, OriginRegion = "US-East" });
+        var bid2 = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "a",
+            Amount = 120,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "1"
+        }, false, 5);
+        db.Bids.Add(bid2);
         await db.SaveChangesAsync();
 
         // 1) Valor menor/igual ao topo => rejeita
-        var lowBid = new Bid { AuctionId = auction.Id, UserId = "x", Amount = 100, Sequence = 6 };
+        var lowBid = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "x",
+            Amount = 100,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "1"
+        }, false, 6);
         var lowAcc = await ordering.ValidateBidOrderAsync(auction.Id, lowBid);
         lowAcc.Accepted.Should().BeFalse();
         lowAcc.Reason.Should().Contain("greater");
 
         // 2) Sequência não-monótona => rejeita
-        var badSeqBid = new Bid { AuctionId = auction.Id, UserId = "y", Amount = 130, Sequence = 4 };
+        var badSeqBid = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "x",
+            Amount = 130,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "1"
+        }, false, 4);
         var badSeqAcc = await ordering.ValidateBidOrderAsync(auction.Id, badSeqBid);
         badSeqAcc.Accepted.Should().BeFalse();
         badSeqAcc.Reason.Should().Contain("Sequence");
 
         // 3) Correto => aceita
-        var okBid = new Bid { AuctionId = auction.Id, UserId = "z", Amount = 130, Sequence = 6 };
+        var okBid = _bidDomainService.Create(auction.Id, new Domain.Models.BidRequest
+        {
+            UserId = "z",
+            Amount = 130,
+            OriginRegion = "US-East",
+            TargetRegion = "US-East",
+            DeduplicationKey = "1"
+        }, false, 6);
         var okAcc = await ordering.ValidateBidOrderAsync(auction.Id, okBid);
         okAcc.Accepted.Should().BeTrue();
     }

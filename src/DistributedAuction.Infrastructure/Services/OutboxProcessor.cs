@@ -14,8 +14,10 @@ public class OutboxProcessor(AuctionDbContext db, Func<OutboxEvent, Task> delive
     private readonly AsyncRetryPolicy _retry = Policy
         .Handle<Exception>()
         .WaitAndRetryAsync(3, attempt => TimeSpan.FromMilliseconds(100 * Math.Pow(2, attempt)));
+    
     public async Task ProcessPendingAsync(int max = 100)
     {
+
         var pending = await _db.OutboxEvents
             .Where(o => o.ProcessedAt == null)
             .OrderBy(o => o.CreatedAt)
@@ -37,4 +39,6 @@ public class OutboxProcessor(AuctionDbContext db, Func<OutboxEvent, Task> delive
             }
         }
     }
+
+
 }

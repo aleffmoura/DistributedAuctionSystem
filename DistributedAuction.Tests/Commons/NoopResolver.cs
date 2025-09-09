@@ -5,6 +5,6 @@ namespace DistributedAuction.Tests.Commons;
 
 internal sealed class NoopResolver : IConflictResolver
 {
-    public Bid Resolve(IEnumerable<Bid> bids)
+    public Bid Resolve(Auction auction, IEnumerable<Bid> bids)
         => bids.OrderByDescending(b => b.Amount).ThenBy(b => b.Sequence).First();
 }

@@ -3,10 +3,10 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace DistributedAuction.Infrastructure.Persistence.Migrations
+namespace DistributedAuction.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class First : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -23,7 +23,9 @@ namespace DistributedAuction.Infrastructure.Persistence.Migrations
                     EndTime = table.Column<DateTime>(type: "TEXT", nullable: false),
                     HighestAmount = table.Column<decimal>(type: "TEXT", nullable: false),
                     HighestBidId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    Version = table.Column<long>(type: "INTEGER", nullable: false, defaultValue: 0L)
+                    Version = table.Column<long>(type: "INTEGER", nullable: false, defaultValue: 0L),
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -121,7 +123,8 @@ namespace DistributedAuction.Infrastructure.Persistence.Migrations
                     OriginRegion = table.Column<string>(type: "TEXT", nullable: false),
                     WasPending = table.Column<bool>(type: "INTEGER", nullable: false),
                     DeduplicationKey = table.Column<string>(type: "TEXT", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    UpdatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
                 },
                 constraints: table =>
                 {

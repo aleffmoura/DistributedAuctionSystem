@@ -4,6 +4,7 @@ using DistributedAuction.Domain.Enums;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using DistributedAuction.Infrastructure.Repositories;
+using DistributedAuction.Infrastructure.Services;
 using DistributedAuction.Tests.Commons;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -33,7 +34,7 @@ public class ConflictResolutionTests
 
         var auctionRepo = new AuctionRepository(db);
         var bidRepo = new BidRepository(db);
-        var sequence = new FakeSequenceService();
+        var sequence = new AuctionSequenceService(db);
         var ordering = new BidOrderingService(sequence, db);
         var coordinator = new RegionCoordinator("US-East", "EU-West");
         var resolver = new ConflictResolver();

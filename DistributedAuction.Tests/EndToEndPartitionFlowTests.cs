@@ -112,7 +112,8 @@ public class EndToEndPartitionFlowTests
         Assert.That(usResult.Status, Is.EqualTo(BidStatus.Accepted), "US bid should be accepted locally");
 
         // Força o término do leilão (EndTime no passado)
-        auction.EndTime = DateTime.UtcNow.AddSeconds(-1);
+        auction.UpdateEnd(DateTime.UtcNow.AddSeconds(-1));
+
         await _auctionRepo.UpdateAsync(auction);
 
         // Cura a partição
