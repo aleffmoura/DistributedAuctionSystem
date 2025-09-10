@@ -10,6 +10,7 @@ using DistributedAuction.Domain.Interfaces;
 using DistributedAuction.Domain.Models;
 using DistributedAuction.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using System.Data;
 using System.Text.Json;
 
@@ -39,8 +40,6 @@ public class AuctionService(
 
     public async Task<Auction> CreateAuctionAsync(CreateAuctionRequest auctionRequest)
     {
-        // CP: single-owner region write with strong guarantees
-
         var auction = auctionDomainService.Create(auctionRequest);
         auction = auctionDomainService.Configure(auction);
 
@@ -55,11 +54,9 @@ public class AuctionService(
 
     public async Task<BidResult> PlaceBidAsync(Guid auctionId, BidRequest request)
     {
-        // Same-region: process locally with strong consistency
         if (request.TargetRegion == request.OriginRegion)
             return await AcceptBidLocally(auctionId, request);
 
-        // Cross-region with healthy connectivity: execute in the target (owner) region
         if (await _region.IsRegionReachableAsync(request.TargetRegion))
         {
             return await _region.ExecuteInRegionAsync(
@@ -96,15 +93,8 @@ public class AuctionService(
         {
             var bid = JsonSerializer.Deserialize<Bid>(ev.PayloadJson)!;
 
-            if (bid.AuctionId != auctionId)
-            {
-                ev.Processed();
-                _db.OutboxEvents.Update(ev);
-                continue;
-            }
-
-            // If auction already ended/reconciled, discard late bids
-            if ((auction.State == AuctionState.Ended || auction.State == AuctionState.Reconciled)
+            if (bid.AuctionId != auctionId ||
+                (auction.State == AuctionState.Ended || auction.State == AuctionState.Reconciled)
                 && bid.Timestamp > auction.EndTime)
             {
                 ev.Processed();
@@ -150,7 +140,6 @@ public class AuctionService(
 
     private async Task<BidResult> SaveBidOnRegion(Guid auctionId, BidRequest request)
     {
-        // Handler in owner: CP path local (transaction, order, idemp)
         var result = await AcceptBidLocally(auctionId, request);
 
         if (result.Status == BidStatus.Accepted &&
@@ -187,9 +176,7 @@ public class AuctionService(
 
         if (auction.State == AuctionState.Ended)
         {
-            await _auctionRepo.UpdateAsync(auction);
-            await tx.CommitAsync();
-            return BidResult.Rejected(bidDomainService.Create(auctionId, request, true, 0), "Auction already ended.");
+            return await UpdateAuctionAndRejectBid(auctionId, request, tx, auction);
         }
 
         if (!string.IsNullOrWhiteSpace(request.DeduplicationKey))
@@ -208,10 +195,9 @@ public class AuctionService(
 
         var acceptance = await _ordering.ValidateBidOrderAsync(auctionId, bid);
 
-        if (!acceptance.Accepted)
+        if (await RejectBid(tx, bid, acceptance) is { Status: BidStatus.Rejected } rejected)
         {
-            await tx.RollbackAsync();
-            return BidResult.Rejected(bid, acceptance.Reason);
+            return rejected;
         }
 
         await _bidRepo.AddAsync(bid);
@@ -225,5 +211,22 @@ public class AuctionService(
         await _db.SaveChangesAsync();
         await tx.CommitAsync();
         return BidResult.Accepted(bid);
+    }
+
+    private static async Task<BidResult?> RejectBid(IDbContextTransaction tx, Bid bid, BidAcceptance acceptance)
+    {
+        if (!acceptance.Accepted)
+        {
+            await tx.RollbackAsync();
+            return BidResult.Rejected(bid, acceptance.Reason);
+        }
+        return null;
+    }
+
+    private async Task<BidResult> UpdateAuctionAndRejectBid(Guid auctionId, BidRequest request, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx, Auction auction)
+    {
+        await _auctionRepo.UpdateAsync(auction);
+        await tx.CommitAsync();
+        return BidResult.Rejected(bidDomainService.Create(auctionId, request, true, 0), "Auction already ended.");
     }
 }

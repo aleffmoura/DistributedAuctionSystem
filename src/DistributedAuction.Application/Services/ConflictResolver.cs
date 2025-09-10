@@ -6,11 +6,6 @@ namespace DistributedAuction.Application.Services;
 
 public class ConflictResolver : IConflictResolver
 {
-    // Deterministic resolution
-    // - larger Amount wins
-    // - tie -> compare Sequence (lower wins)
-    // - tie -> earlier Timestamp wins
-    // - tie -> compare GUIDs
     public Bid Resolve(Auction auction, IEnumerable<Bid> bids)
     {
         if (bids == null || !bids.Any()) return null!;

@@ -6,16 +6,10 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DistributedAuction.Application.Services;
 
-public class BidOrderingService : IBidOrderingService
+public class BidOrderingService(IAuctionSequenceService sequence, AuctionDbContext db) : IBidOrderingService
 {
-    private readonly IAuctionSequenceService _sequence;
-    private readonly AuctionDbContext _db;
-
-    public BidOrderingService(IAuctionSequenceService sequence, AuctionDbContext db)
-    {
-        _sequence = sequence;
-        _db = db;
-    }
+    private readonly IAuctionSequenceService _sequence = sequence;
+    private readonly AuctionDbContext _db = db;
 
     public Task<long> GetNextBidSequenceAsync(Guid auctionId)
         => _sequence.GetNextAsync(auctionId);

@@ -8,12 +8,10 @@ namespace DistributedAuction.Application.Services;
 
 public class DatabaseSyncService(AuctionDbContext db, IAuctionService auctionService) : IDatabaseSyncService
 {
-    private readonly AuctionDbContext _db = db;
-    private readonly IAuctionService _auctionService = auctionService;
 
     public async Task<int> PushOutboxAsync(string destinationRegion, CancellationToken ct = default)
     {
-        var events = await _db.OutboxEvents
+        var events = await db.OutboxEvents
             .Where(e => e.ProcessedAt == null && e.DestinationRegion == destinationRegion)
             .OrderBy(e => e.CreatedAt)
             .ToListAsync(ct);
@@ -24,24 +22,24 @@ public class DatabaseSyncService(AuctionDbContext db, IAuctionService auctionSer
             {
                 case "CrossRegionBid":
                     var bid = JsonSerializer.Deserialize<Bid>(e.PayloadJson)!;
-                    await _auctionService.ReconcileAuctionAsync(bid.AuctionId);
+                    await auctionService.ReconcileAuctionAsync(bid.AuctionId);
                     e.ProcessedAt = DateTime.UtcNow;
-                    _db.OutboxEvents.Update(e);
+                    db.OutboxEvents.Update(e);
                     break;
 
                 case "BidAccepted":
                     e.ProcessedAt = DateTime.UtcNow;
-                    _db.OutboxEvents.Update(e);
+                    db.OutboxEvents.Update(e);
                     break;
 
                 default:
                     e.ProcessedAt = DateTime.UtcNow;
-                    _db.OutboxEvents.Update(e);
+                    db.OutboxEvents.Update(e);
                     break;
             }
         }
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
         return events.Count;
     }
 }

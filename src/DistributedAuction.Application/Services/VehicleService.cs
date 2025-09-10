@@ -8,36 +8,32 @@ namespace DistributedAuction.Application.Services;
 
 public class VehicleService(IVehicleRepository repo, AuctionDbContext db) : IVehicleService
 {
-    private readonly IVehicleRepository _repo = repo;
-    private readonly AuctionDbContext _db = db;
 
     public async Task<Vehicle> CreateAsync(Vehicle vehicle)
     {
-        // CP write: local strong transaction (owner region)
-        await using var tx = await _db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
-        await _repo.AddAsync(vehicle);
+        await using var tx = await db.Database.BeginTransactionAsync(IsolationLevel.Serializable);
+        await repo.AddAsync(vehicle);
         await tx.CommitAsync();
         return vehicle;
     }
 
-    public Task<Vehicle?> GetAsync(Guid id) => _repo.GetAsync(id);
+    public Task<Vehicle?> GetAsync(Guid id) => repo.GetAsync(id);
 
     public Task<IReadOnlyList<Vehicle>> ListAsync(string region, int skip = 0, int take = 100)
-        => _repo.ListByRegionAsync(region, skip, take);
+        => repo.ListByRegionAsync(region, skip, take);
 
     public async Task<Vehicle> UpdateAsync(Vehicle vehicle)
     {
-        // validates regional scope (does not cross regions)
-        var exists = await _repo.ExistsInRegionAsync(vehicle.Id, vehicle.Region);
+        var exists = await repo.ExistsInRegionAsync(vehicle.Id, vehicle.Region);
         if (!exists) throw new InvalidOperationException("Vehicle not found in this region.");
-        await _repo.UpdateAsync(vehicle);
+        await repo.UpdateAsync(vehicle);
         return vehicle;
     }
 
     public async Task DeleteAsync(Guid id, string region)
     {
-        var exists = await _repo.ExistsInRegionAsync(id, region);
+        var exists = await repo.ExistsInRegionAsync(id, region);
         if (!exists) return;
-        await _repo.DeleteAsync(id);
+        await repo.DeleteAsync(id);
     }
 }
